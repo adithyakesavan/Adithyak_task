@@ -1,6 +1,8 @@
 
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { useToast } from "@/components/ui/use-toast";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 
 export type TaskPriority = "low" | "medium" | "high";
 export type TaskStatus = "pending" | "completed";
@@ -14,162 +16,305 @@ export interface Task {
   status: TaskStatus;
   assignedTo?: string;
   createdAt: string;
+  user_id: string;
 }
 
 interface TaskContextType {
   tasks: Task[];
   loading: boolean;
-  addTask: (task: Omit<Task, "id" | "createdAt" | "status">) => void;
-  updateTask: (id: string, task: Partial<Omit<Task, "id">>) => void;
-  deleteTask: (id: string) => void;
-  toggleTaskStatus: (id: string) => void;
+  addTask: (task: Omit<Task, "id" | "createdAt" | "status" | "user_id">) => Promise<string | undefined>;
+  updateTask: (id: string, task: Partial<Omit<Task, "id" | "user_id">>) => Promise<void>;
+  deleteTask: (id: string) => Promise<void>;
+  toggleTaskStatus: (id: string) => Promise<void>;
   getFilteredTasks: (status?: TaskStatus, priority?: TaskPriority, searchTerm?: string) => Task[];
   getSortedTasks: (tasks: Task[], sortBy: 'dueDate' | 'priority' | 'status') => Task[];
 }
 
 const TaskContext = createContext<TaskContextType | undefined>(undefined);
 
-// Sample tasks for demo
-const initialTasks: Task[] = [
-  {
-    id: "1",
-    title: "Complete project proposal",
-    description: "Draft the initial project proposal document for client review",
-    dueDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    priority: "high",
-    status: "pending",
-    assignedTo: "Demo User",
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "2",
-    title: "Review team updates",
-    description: "Check and provide feedback on the weekly team updates",
-    dueDate: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    priority: "medium",
-    status: "pending",
-    assignedTo: "Demo User",
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "3",
-    title: "Setup development environment",
-    description: "Install and configure required tools and libraries",
-    dueDate: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    priority: "low",
-    status: "completed",
-    assignedTo: "Demo User",
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "4",
-    title: "Client meeting preparation",
-    description: "Prepare slides and talking points for upcoming client meeting",
-    dueDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    priority: "high",
-    status: "pending",
-    assignedTo: "Demo User",
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "5",
-    title: "Weekly team sync",
-    description: "Regular team meeting to discuss progress and roadblocks",
-    dueDate: new Date(Date.now()).toISOString().split('T')[0],
-    priority: "medium",
-    status: "pending",
-    assignedTo: "Demo User",
-    createdAt: new Date().toISOString(),
-  },
-];
-
 export const TaskProvider = ({ children }: { children: ReactNode }) => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
+  const { user } = useAuth();
 
   useEffect(() => {
-    // Load tasks from localStorage or use initial demo tasks
-    const storedTasks = localStorage.getItem("tasks");
-    
-    if (storedTasks) {
-      try {
-        setTasks(JSON.parse(storedTasks));
-      } catch (error) {
-        console.error("Failed to parse stored tasks:", error);
-        setTasks(initialTasks);
-      }
+    if (user) {
+      fetchTasks();
+      setupRealtimeSubscription();
     } else {
-      setTasks(initialTasks);
+      setTasks([]);
+      setLoading(false);
     }
+  }, [user]);
+
+  const fetchTasks = async () => {
+    if (!user) return;
     
-    setLoading(false);
-  }, []);
-
-  // Save tasks to localStorage whenever they change
-  useEffect(() => {
-    if (!loading) {
-      localStorage.setItem("tasks", JSON.stringify(tasks));
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('tasks')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      
+      const formattedTasks = data.map(task => ({
+        id: task.id,
+        title: task.title,
+        description: task.description || '',
+        dueDate: task.due_date,
+        priority: task.priority as TaskPriority,
+        status: task.status as TaskStatus,
+        assignedTo: task.assigned_to,
+        createdAt: task.created_at,
+        user_id: task.user_id
+      }));
+      
+      setTasks(formattedTasks);
+    } catch (error) {
+      console.error('Error fetching tasks:', error);
+      toast({
+        title: "Failed to load tasks",
+        description: (error as Error).message || "Please try again later",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
     }
-  }, [tasks, loading]);
+  };
 
-  const addTask = (taskData: Omit<Task, "id" | "createdAt" | "status">) => {
-    const newTask: Task = {
-      ...taskData,
-      id: Date.now().toString(),
-      status: "pending",
-      createdAt: new Date().toISOString(),
+  const setupRealtimeSubscription = () => {
+    if (!user) return;
+
+    const channel = supabase
+      .channel('public:tasks')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'tasks',
+          filter: `user_id=eq.${user.id}`
+        },
+        (payload) => {
+          console.log('Realtime update:', payload);
+          
+          if (payload.eventType === 'INSERT') {
+            const newTask = payload.new;
+            setTasks(prev => [{
+              id: newTask.id,
+              title: newTask.title,
+              description: newTask.description || '',
+              dueDate: newTask.due_date,
+              priority: newTask.priority as TaskPriority,
+              status: newTask.status as TaskStatus,
+              assignedTo: newTask.assigned_to,
+              createdAt: newTask.created_at,
+              user_id: newTask.user_id
+            }, ...prev]);
+          } else if (payload.eventType === 'UPDATE') {
+            const updatedTask = payload.new;
+            setTasks(prev => prev.map(task => 
+              task.id === updatedTask.id 
+                ? {
+                    id: updatedTask.id,
+                    title: updatedTask.title,
+                    description: updatedTask.description || '',
+                    dueDate: updatedTask.due_date,
+                    priority: updatedTask.priority as TaskPriority,
+                    status: updatedTask.status as TaskStatus,
+                    assignedTo: updatedTask.assigned_to,
+                    createdAt: updatedTask.created_at,
+                    user_id: updatedTask.user_id
+                  }
+                : task
+            ));
+          } else if (payload.eventType === 'DELETE') {
+            const deletedTaskId = payload.old.id;
+            setTasks(prev => prev.filter(task => task.id !== deletedTaskId));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
     };
-    
-    setTasks((prevTasks) => [...prevTasks, newTask]);
-    
-    toast({
-      title: "Task added",
-      description: "Your task has been added successfully",
-    });
   };
 
-  const updateTask = (id: string, taskData: Partial<Omit<Task, "id">>) => {
-    setTasks((prevTasks) =>
-      prevTasks.map((task) =>
-        task.id === id ? { ...task, ...taskData } : task
-      )
-    );
+  const addTask = async (taskData: Omit<Task, "id" | "createdAt" | "status" | "user_id">) => {
+    if (!user) return;
     
-    toast({
-      title: "Task updated",
-      description: "Your task has been updated successfully",
-    });
+    try {
+      setLoading(true);
+      
+      const { data, error } = await supabase
+        .from('tasks')
+        .insert([
+          {
+            title: taskData.title,
+            description: taskData.description,
+            due_date: taskData.dueDate,
+            priority: taskData.priority,
+            status: 'pending',
+            assigned_to: taskData.assignedTo,
+            user_id: user.id
+          }
+        ])
+        .select()
+        .single();
+      
+      if (error) throw error;
+      
+      toast({
+        title: "Task added",
+        description: "Your task has been added successfully",
+      });
+      
+      // Create a notification for the new task
+      await createNotification(data.id, data.title);
+      
+      return data.id;
+    } catch (error) {
+      console.error('Error adding task:', error);
+      toast({
+        title: "Failed to add task",
+        description: (error as Error).message || "Please try again",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const deleteTask = (id: string) => {
-    setTasks((prevTasks) => prevTasks.filter((task) => task.id !== id));
+  const createNotification = async (taskId: string, taskTitle: string) => {
+    if (!user) return;
     
-    toast({
-      title: "Task deleted",
-      description: "Your task has been deleted",
-    });
+    try {
+      const { error } = await supabase
+        .from('notifications')
+        .insert([
+          {
+            user_id: user.id,
+            task_id: taskId,
+            message: `You have a new task: ${taskTitle}`,
+            status: 'unread'
+          }
+        ]);
+      
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error creating notification:', error);
+    }
   };
 
-  const toggleTaskStatus = (id: string) => {
-    setTasks((prevTasks) =>
-      prevTasks.map((task) =>
-        task.id === id
-          ? {
-              ...task,
-              status: task.status === "completed" ? "pending" : "completed",
-            }
-          : task
-      )
-    );
+  const updateTask = async (id: string, taskData: Partial<Omit<Task, "id" | "user_id">>) => {
+    if (!user) return;
     
-    const task = tasks.find((t) => t.id === id);
-    const newStatus = task?.status === "completed" ? "pending" : "completed";
+    try {
+      setLoading(true);
+      
+      const { error } = await supabase
+        .from('tasks')
+        .update({
+          title: taskData.title,
+          description: taskData.description,
+          due_date: taskData.dueDate,
+          priority: taskData.priority,
+          status: taskData.status,
+          assigned_to: taskData.assignedTo,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .eq('user_id', user.id);
+      
+      if (error) throw error;
+      
+      toast({
+        title: "Task updated",
+        description: "Your task has been updated successfully",
+      });
+    } catch (error) {
+      console.error('Error updating task:', error);
+      toast({
+        title: "Failed to update task",
+        description: (error as Error).message || "Please try again",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteTask = async (id: string) => {
+    if (!user) return;
     
-    toast({
-      title: `Task ${newStatus}`,
-      description: `Task has been marked as ${newStatus}`,
-    });
+    try {
+      setLoading(true);
+      
+      const { error } = await supabase
+        .from('tasks')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', user.id);
+      
+      if (error) throw error;
+      
+      toast({
+        title: "Task deleted",
+        description: "Your task has been deleted",
+      });
+    } catch (error) {
+      console.error('Error deleting task:', error);
+      toast({
+        title: "Failed to delete task",
+        description: (error as Error).message || "Please try again",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleTaskStatus = async (id: string) => {
+    if (!user) return;
+    
+    const task = tasks.find(t => t.id === id);
+    if (!task) return;
+    
+    const newStatus: TaskStatus = task.status === "completed" ? "pending" : "completed";
+    
+    try {
+      setLoading(true);
+      
+      const { error } = await supabase
+        .from('tasks')
+        .update({
+          status: newStatus,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .eq('user_id', user.id);
+      
+      if (error) throw error;
+      
+      toast({
+        title: `Task ${newStatus}`,
+        description: `Task has been marked as ${newStatus}`,
+      });
+    } catch (error) {
+      console.error('Error toggling task status:', error);
+      toast({
+        title: "Failed to update task",
+        description: (error as Error).message || "Please try again",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const getFilteredTasks = (status?: TaskStatus, priority?: TaskPriority, searchTerm?: string) => {

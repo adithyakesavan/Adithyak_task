@@ -1,6 +1,8 @@
 
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { useToast } from "@/components/ui/use-toast";
+import { supabase } from "@/integrations/supabase/client";
+import { User as SupabaseUser, Session } from "@supabase/supabase-js";
 
 export interface User {
   id: string;
@@ -28,43 +30,59 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   // Initialize auth state
   useEffect(() => {
-    const storedUser = localStorage.getItem("user");
-    if (storedUser) {
-      try {
-        setUser(JSON.parse(storedUser));
-      } catch (error) {
-        console.error("Failed to parse stored user:", error);
-        localStorage.removeItem("user");
+    // Set up auth state listener FIRST
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        if (session) {
+          const supaUser = session.user;
+          const mappedUser: User = {
+            id: supaUser.id,
+            name: supaUser.user_metadata.name || supaUser.email?.split('@')[0] || '',
+            email: supaUser.email || '',
+            profilePicture: supaUser.user_metadata.profilePicture || undefined,
+          };
+          setUser(mappedUser);
+        } else {
+          setUser(null);
+        }
+        setLoading(false);
       }
-    }
-    setLoading(false);
+    );
+
+    // THEN check for existing session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        const supaUser = session.user;
+        const mappedUser: User = {
+          id: supaUser.id,
+          name: supaUser.user_metadata.name || supaUser.email?.split('@')[0] || '',
+          email: supaUser.email || '',
+          profilePicture: supaUser.user_metadata.profilePicture || undefined,
+        };
+        setUser(mappedUser);
+      }
+      setLoading(false);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
-  // Mock login - in a real app, this would make an API call
   const login = async (email: string, password: string) => {
     setLoading(true);
     try {
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const { data, error } = await supabase.auth.signInWithPassword({ 
+        email, 
+        password 
+      });
       
-      // Mock validation
-      if (email === "demo@example.com" && password === "password") {
-        const mockUser: User = {
-          id: "1",
-          name: "Demo User",
-          email: "demo@example.com",
-          profilePicture: "https://ui-avatars.com/api/?name=Demo+User&background=0D8ABC&color=fff"
-        };
-        
-        setUser(mockUser);
-        localStorage.setItem("user", JSON.stringify(mockUser));
-        toast({
-          title: "Login successful",
-          description: "Welcome back!",
-        });
-      } else {
-        throw new Error("Invalid credentials");
-      }
+      if (error) throw error;
+      
+      toast({
+        title: "Login successful",
+        description: "Welcome back!",
+      });
     } catch (error) {
       toast({
         title: "Login failed",
@@ -77,29 +95,26 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  // Mock register - in a real app, this would make an API call
   const register = async (name: string, email: string, password: string) => {
     setLoading(true);
     try {
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Mock user creation
-      const mockUser: User = {
-        id: Date.now().toString(),
-        name,
+      const { data, error } = await supabase.auth.signUp({
         email,
-        profilePicture: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=0D8ABC&color=fff`
-      };
+        password,
+        options: {
+          data: {
+            name,
+            profilePicture: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=0D8ABC&color=fff`
+          }
+        }
+      });
+      
+      if (error) throw error;
       
       toast({
         title: "Registration successful",
         description: "Your account has been created.",
       });
-      
-      // Auto-login after registration
-      setUser(mockUser);
-      localStorage.setItem("user", JSON.stringify(mockUser));
     } catch (error) {
       toast({
         title: "Registration failed",
@@ -112,20 +127,30 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const logout = () => {
-    setUser(null);
-    localStorage.removeItem("user");
-    toast({
-      title: "Logged out",
-      description: "You have been successfully logged out",
-    });
+  const logout = async () => {
+    try {
+      await supabase.auth.signOut();
+      toast({
+        title: "Logged out",
+        description: "You have been successfully logged out",
+      });
+    } catch (error) {
+      toast({
+        title: "Error signing out",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+    }
   };
 
   const forgotPassword = async (email: string) => {
     setLoading(true);
     try {
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      
+      if (error) throw error;
       
       toast({
         title: "Password reset link sent",
@@ -146,20 +171,27 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const updateProfile = async (data: Partial<User>) => {
     setLoading(true);
     try {
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      if (!user) {
+        throw new Error("No user logged in");
+      }
+      
+      const { error } = await supabase.auth.updateUser({
+        data: {
+          name: data.name,
+          profilePicture: data.profilePicture,
+        }
+      });
+      
+      if (error) throw error;
       
       if (user) {
         const updatedUser = { ...user, ...data };
         setUser(updatedUser);
-        localStorage.setItem("user", JSON.stringify(updatedUser));
         
         toast({
           title: "Profile updated",
           description: "Your profile has been successfully updated",
         });
-      } else {
-        throw new Error("No user logged in");
       }
     } catch (error) {
       toast({

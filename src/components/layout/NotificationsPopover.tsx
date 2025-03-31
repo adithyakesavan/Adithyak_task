@@ -1,6 +1,7 @@
 
 import { useState, useEffect } from "react";
-import { useTasks } from "@/contexts/TaskContext";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   Popover,
   PopoverContent,
@@ -11,57 +12,164 @@ import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/components/ui/use-toast";
 
 interface Notification {
   id: string;
-  title: string;
   message: string;
-  date: string;
-  read: boolean;
-  taskId?: string;
+  status: "read" | "unread";
+  created_at: string;
+  task_id?: string;
 }
 
 const NotificationsPopover = () => {
-  const { tasks } = useTasks();
+  const { user } = useAuth();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const { toast } = useToast();
   
   useEffect(() => {
-    // Generate notifications from tasks for demo purposes
-    const newNotifications = tasks.map(task => ({
-      id: `notif-${task.id}`,
-      title: `Task: ${task.title}`,
-      message: `Priority: ${task.priority}, Due: ${task.dueDate}`,
-      date: new Date(task.createdAt).toLocaleString(),
-      read: false,
-      taskId: task.id
-    }));
-    
-    setNotifications(newNotifications);
-    setUnreadCount(newNotifications.filter(n => !n.read).length);
-  }, [tasks]);
+    if (user) {
+      fetchNotifications();
+      setupRealtimeSubscription();
+    } else {
+      setNotifications([]);
+      setUnreadCount(0);
+    }
+  }, [user]);
   
-  const markAsRead = (id: string) => {
-    setNotifications(prev => 
-      prev.map(notification => 
-        notification.id === id 
-          ? { ...notification, read: true } 
-          : notification
+  const fetchNotifications = async () => {
+    if (!user) return;
+    
+    try {
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      
+      setNotifications(data);
+      setUnreadCount(data.filter(n => n.status === 'unread').length);
+    } catch (error) {
+      console.error('Error fetching notifications:', error);
+    }
+  };
+  
+  const setupRealtimeSubscription = () => {
+    if (!user) return;
+    
+    const channel = supabase
+      .channel('public:notifications')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${user.id}`
+        },
+        (payload) => {
+          console.log('Notification realtime update:', payload);
+          
+          if (payload.eventType === 'INSERT') {
+            setNotifications(prev => [payload.new as Notification, ...prev]);
+            if ((payload.new as Notification).status === 'unread') {
+              setUnreadCount(prev => prev + 1);
+              
+              // Show a toast for the new notification
+              toast({
+                title: "New Notification",
+                description: (payload.new as Notification).message,
+              });
+            }
+          } else if (payload.eventType === 'UPDATE') {
+            setNotifications(prev => 
+              prev.map(n => n.id === payload.new.id ? payload.new as Notification : n)
+            );
+            
+            // Update unread count
+            setUnreadCount(prev => {
+              const oldStatus = (payload.old as Notification).status;
+              const newStatus = (payload.new as Notification).status;
+              
+              if (oldStatus === 'unread' && newStatus === 'read') {
+                return prev - 1;
+              } else if (oldStatus === 'read' && newStatus === 'unread') {
+                return prev + 1;
+              }
+              return prev;
+            });
+          } else if (payload.eventType === 'DELETE') {
+            setNotifications(prev => 
+              prev.filter(n => n.id !== payload.old.id)
+            );
+            
+            if ((payload.old as Notification).status === 'unread') {
+              setUnreadCount(prev => Math.max(0, prev - 1));
+            }
+          }
+        }
       )
-    );
-    setUnreadCount(prev => prev - 1);
+      .subscribe();
+    
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  };
+  
+  const markAsRead = async (id: string) => {
+    if (!user) return;
+    
+    try {
+      const { error } = await supabase
+        .from('notifications')
+        .update({ status: 'read' })
+        .eq('id', id)
+        .eq('user_id', user.id);
+      
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+    }
   };
 
-  const clearNotification = (id: string) => {
-    setNotifications(prev => prev.filter(notification => notification.id !== id));
-    setUnreadCount(prev => prev - 1);
+  const clearNotification = async (id: string) => {
+    if (!user) return;
+    
+    try {
+      const { error } = await supabase
+        .from('notifications')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', user.id);
+      
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error deleting notification:', error);
+    }
   };
   
-  const markAllAsRead = () => {
-    setNotifications(prev => 
-      prev.map(notification => ({ ...notification, read: true }))
-    );
-    setUnreadCount(0);
+  const markAllAsRead = async () => {
+    if (!user || notifications.length === 0) return;
+    
+    try {
+      const { error } = await supabase
+        .from('notifications')
+        .update({ status: 'read' })
+        .eq('user_id', user.id)
+        .eq('status', 'unread');
+      
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error marking all notifications as read:', error);
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleString();
   };
 
   return (
@@ -100,13 +208,12 @@ const NotificationsPopover = () => {
                   key={notification.id} 
                   className={cn(
                     "p-4 relative",
-                    !notification.read ? "bg-muted/50" : ""
+                    notification.status === 'unread' ? "bg-muted/50" : ""
                   )}
                 >
                   <div className="pr-6">
-                    <h4 className="text-sm font-medium">{notification.title}</h4>
-                    <p className="text-xs text-muted-foreground mt-1">{notification.message}</p>
-                    <p className="text-xs text-muted-foreground mt-1">{notification.date}</p>
+                    <p className="text-sm">{notification.message}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{formatDate(notification.created_at)}</p>
                   </div>
                   
                   <Button
@@ -118,7 +225,7 @@ const NotificationsPopover = () => {
                     <X className="h-4 w-4" />
                   </Button>
                   
-                  {!notification.read && (
+                  {notification.status === 'unread' && (
                     <Button
                       variant="link"
                       size="sm"
