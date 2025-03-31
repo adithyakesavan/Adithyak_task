@@ -1,164 +1,232 @@
 
-import { useTasks, TaskPriority } from "@/contexts/TaskContext";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useTasks, TaskStatus, TaskPriority } from "@/contexts/TaskContext";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { CheckCheck, Clock, AlertTriangle } from "lucide-react";
-import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
+import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend } from "recharts";
+import { ClipboardCheck, ClipboardList, AlertCircle } from "lucide-react";
 
 const TaskStats = () => {
   const { tasks } = useTasks();
   
-  // Calculate statistics
+  // Calculate task statistics
   const totalTasks = tasks.length;
-  const completedTasks = tasks.filter((task) => task.status === "completed").length;
-  const pendingTasks = totalTasks - completedTasks;
-  const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+  const completedTasks = tasks.filter(task => task.status === "completed").length;
+  const pendingTasks = tasks.filter(task => task.status === "pending").length;
   
-  // Calculate priority distribution
-  const highPriorityTasks = tasks.filter((task) => task.priority === "high").length;
-  const mediumPriorityTasks = tasks.filter((task) => task.priority === "medium").length;
-  const lowPriorityTasks = tasks.filter((task) => task.priority === "low").length;
+  const highPriorityTasks = tasks.filter(task => task.priority === "high").length;
+  const mediumPriorityTasks = tasks.filter(task => task.priority === "medium").length;
+  const lowPriorityTasks = tasks.filter(task => task.priority === "low").length;
   
-  // Calculate overdue tasks
-  const overdueTasks = tasks.filter(
-    (task) => 
-      task.status === "pending" && 
-      new Date(task.dueDate) < new Date() &&
-      new Date(task.dueDate).setHours(0, 0, 0, 0) !== new Date().setHours(0, 0, 0, 0)
-  ).length;
+  // Calculate completion percentage
+  const completionPercentage = totalTasks > 0 
+    ? Math.round((completedTasks / totalTasks) * 100) 
+    : 0;
   
-  // Data for the pie chart
-  const chartData = [
-    { name: "Completed", value: completedTasks, color: "#10B981" },
-    { name: "Pending", value: pendingTasks, color: "#6366F1" },
+  // Prepare data for pie chart
+  const statusData = [
+    { name: "Completed", value: completedTasks, color: "#10b981" },
+    { name: "Pending", value: pendingTasks, color: "#f59e0b" },
   ];
   
-  // Data for the priority chart
   const priorityData = [
-    { name: "High", value: highPriorityTasks, color: "#EF4444" },
-    { name: "Medium", value: mediumPriorityTasks, color: "#F97316" },
-    { name: "Low", value: lowPriorityTasks, color: "#10B981" },
+    { name: "High", value: highPriorityTasks, color: "#ef4444" },
+    { name: "Medium", value: mediumPriorityTasks, color: "#f59e0b" },
+    { name: "Low", value: lowPriorityTasks, color: "#10b981" },
   ];
+  
+  // Custom tooltip for the pie chart
+  const CustomTooltip = ({ active, payload }: any) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="bg-background border border-border p-2 rounded shadow-sm">
+          <p className="font-medium text-sm">{`${payload[0].name}: ${payload[0].value}`}</p>
+        </div>
+      );
+    }
+    return null;
+  };
   
   return (
-    <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-      {/* Total Tasks Card */}
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {/* Task Status */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">Total Tasks</CardTitle>
-          <CheckCheck className="h-4 w-4 text-muted-foreground" />
+        <CardHeader className="pb-2">
+          <CardTitle className="text-xl">Task Status</CardTitle>
+          <CardDescription>Overview of your tasks progress</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold">{totalTasks}</div>
-          <p className="text-xs text-muted-foreground">
-            {completedTasks} completed, {pendingTasks} pending
-          </p>
-          <Progress
-            value={completionRate}
-            className="mt-4 h-2"
-            aria-label="Task completion rate"
-          />
-          <p className="mt-2 text-xs text-muted-foreground">
-            {completionRate}% completion rate
-          </p>
-        </CardContent>
-      </Card>
-      
-      {/* Priority Distribution Card */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">Priority Distribution</CardTitle>
-          <AlertTriangle className="h-4 w-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-          <div className="h-[160px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={priorityData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={30}
-                  outerRadius={60}
-                  paddingAngle={5}
-                  dataKey="value"
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                  labelLine={false}
-                >
-                  {priorityData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip 
-                  formatter={(value, name) => [`${value} tasks`, name]}
-                  contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        </CardContent>
-      </Card>
-      
-      {/* Overdue Tasks Card */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">Overdue Tasks</CardTitle>
-          <Clock className="h-4 w-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold">{overdueTasks}</div>
-          <p className="text-xs text-muted-foreground">
-            {pendingTasks > 0
-              ? `${Math.round((overdueTasks / pendingTasks) * 100)}% of pending tasks`
-              : "No pending tasks"}
-          </p>
-          <Progress
-            value={pendingTasks > 0 ? (overdueTasks / pendingTasks) * 100 : 0}
-            className="mt-4 h-2"
-            indicatorColor="bg-destructive"
-            aria-label="Overdue tasks"
-          />
-          <p className="mt-2 text-xs text-muted-foreground">
-            {pendingTasks - overdueTasks} tasks on track
-          </p>
-        </CardContent>
-      </Card>
-      
-      {/* Task Status Card */}
-      <Card className="md:col-span-2 lg:col-span-3">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">Task Completion Status</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="h-[200px]">
-            {totalTasks === 0 ? (
-              <div className="flex h-full items-center justify-center">
-                <p className="text-muted-foreground">No tasks to display</p>
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            <div className="flex flex-col gap-1 items-center p-3 bg-card rounded-md border">
+              <div className="flex gap-2 items-center">
+                <ClipboardCheck className="h-5 w-5 text-primary" />
+                <span className="font-medium">Completed</span>
               </div>
-            ) : (
+              <span className="text-2xl font-bold">{completedTasks}</span>
+            </div>
+            
+            <div className="flex flex-col gap-1 items-center p-3 bg-card rounded-md border">
+              <div className="flex gap-2 items-center">
+                <ClipboardList className="h-5 w-5 text-amber-500" />
+                <span className="font-medium">Pending</span>
+              </div>
+              <span className="text-2xl font-bold">{pendingTasks}</span>
+            </div>
+          </div>
+          
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm">
+              <span>Completion Rate</span>
+              <span className="font-medium">{completionPercentage}%</span>
+            </div>
+            <Progress 
+              value={completionPercentage} 
+              className="h-2" 
+              aria-label="Task completion progress"
+            />
+          </div>
+          
+          {totalTasks > 0 && (
+            <div className="mt-4 h-[200px]">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
-                    data={chartData}
+                    data={statusData}
                     cx="50%"
                     cy="50%"
-                    outerRadius={80}
+                    innerRadius={50}
+                    outerRadius={70}
                     fill="#8884d8"
+                    paddingAngle={5}
                     dataKey="value"
                     label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                    labelLine={false}
                   >
-                    {chartData.map((entry, index) => (
+                    {statusData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={entry.color} />
                     ))}
                   </Pie>
-                  <Legend />
-                  <Tooltip 
-                    formatter={(value, name) => [`${value} tasks`, name]}
-                    contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}
-                  />
+                  <Tooltip content={<CustomTooltip />} />
                 </PieChart>
               </ResponsiveContainer>
-            )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      
+      {/* Task Priority */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-xl">Priority Breakdown</CardTitle>
+          <CardDescription>Tasks grouped by priority level</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-3 gap-2 mb-4">
+            <div className="flex flex-col gap-1 items-center p-2 bg-card rounded-md border">
+              <div className="flex gap-1 items-center">
+                <AlertCircle className="h-4 w-4 text-red-500" />
+                <span className="font-medium text-sm">High</span>
+              </div>
+              <span className="text-xl font-bold">{highPriorityTasks}</span>
+            </div>
+            
+            <div className="flex flex-col gap-1 items-center p-2 bg-card rounded-md border">
+              <div className="flex gap-1 items-center">
+                <AlertCircle className="h-4 w-4 text-amber-500" />
+                <span className="font-medium text-sm">Medium</span>
+              </div>
+              <span className="text-xl font-bold">{mediumPriorityTasks}</span>
+            </div>
+            
+            <div className="flex flex-col gap-1 items-center p-2 bg-card rounded-md border">
+              <div className="flex gap-1 items-center">
+                <AlertCircle className="h-4 w-4 text-green-500" />
+                <span className="font-medium text-sm">Low</span>
+              </div>
+              <span className="text-xl font-bold">{lowPriorityTasks}</span>
+            </div>
+          </div>
+          
+          {totalTasks > 0 && (
+            <div className="mt-4 h-[200px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={priorityData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={50}
+                    outerRadius={70}
+                    fill="#8884d8"
+                    paddingAngle={5}
+                    dataKey="value"
+                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                    labelLine={false}
+                  >
+                    {priorityData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip content={<CustomTooltip />} />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      
+      {/* Recent Activity */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-xl">Task Summary</CardTitle>
+          <CardDescription>Overall task statistics</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="flex flex-col gap-2 p-4 bg-card rounded-md border">
+              <span className="text-sm text-muted-foreground">Total Tasks</span>
+              <span className="text-3xl font-bold">{totalTasks}</span>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex flex-col gap-1 p-3 bg-card rounded-md border">
+                <span className="text-sm text-muted-foreground">Due Today</span>
+                <span className="text-xl font-bold">
+                  {tasks.filter(task => 
+                    task.dueDate === new Date().toISOString().split('T')[0] && 
+                    task.status === "pending"
+                  ).length}
+                </span>
+              </div>
+              
+              <div className="flex flex-col gap-1 p-3 bg-card rounded-md border">
+                <span className="text-sm text-muted-foreground">Overdue</span>
+                <span className="text-xl font-bold">
+                  {tasks.filter(task => 
+                    task.dueDate < new Date().toISOString().split('T')[0] && 
+                    task.status === "pending"
+                  ).length}
+                </span>
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm">
+                <span>High Priority Progress</span>
+                <span className="font-medium">
+                  {highPriorityTasks > 0 
+                    ? Math.round((tasks.filter(t => t.priority === "high" && t.status === "completed").length / highPriorityTasks) * 100) 
+                    : 0}%
+                </span>
+              </div>
+              <Progress 
+                value={highPriorityTasks > 0 
+                  ? (tasks.filter(t => t.priority === "high" && t.status === "completed").length / highPriorityTasks) * 100 
+                  : 0} 
+                className="h-2"
+                aria-label="High priority task completion progress"
+              />
+            </div>
           </div>
         </CardContent>
       </Card>

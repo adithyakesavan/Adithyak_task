@@ -1,11 +1,16 @@
 
 import { useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
-import { LayoutDashboard, CheckSquare, Calendar, Users, Settings, Menu, X } from "lucide-react";
+import { LayoutDashboard, CheckSquare, Home, Mail, Info, Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 const navItems = [
+  {
+    title: "Home",
+    href: "/",
+    icon: Home,
+  },
   {
     title: "Dashboard",
     href: "/dashboard",
@@ -17,19 +22,14 @@ const navItems = [
     icon: CheckSquare,
   },
   {
-    title: "Calendar",
-    href: "/calendar",
-    icon: Calendar,
+    title: "About",
+    href: "/about",
+    icon: Info,
   },
   {
-    title: "Team",
-    href: "/team",
-    icon: Users,
-  },
-  {
-    title: "Settings",
-    href: "/profile",
-    icon: Settings,
+    title: "Contact",
+    href: "/contact",
+    icon: Mail,
   },
 ];
 

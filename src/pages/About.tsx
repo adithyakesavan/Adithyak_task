@@ -81,20 +81,6 @@ const About = () => {
               coordinating team efforts, TaskTracker scales to meet your needs
               with powerful features that never get in your way.
             </p>
-            <div className="pt-4">
-              <a
-                href="/register"
-                className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-              >
-                Sign Up for Free
-              </a>
-              <a
-                href="/login"
-                className="ml-4 inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
-              >
-                Login
-              </a>
-            </div>
           </CardContent>
         </Card>
       </div>
