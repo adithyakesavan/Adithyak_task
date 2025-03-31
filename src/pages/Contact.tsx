@@ -67,7 +67,7 @@ const Contact = () => {
                 href="mailto:support@tasktracker.com"
                 className="text-primary hover:underline"
               >
-                support@tasktracker.com
+                adithyak3108@gmail.com
               </a>
             </CardContent>
           </Card>
@@ -84,7 +84,7 @@ const Contact = () => {
                 href="tel:+1234567890"
                 className="text-primary hover:underline"
               >
-                +1 (234) 567-890
+                +91 8667403113
               </a>
             </CardContent>
           </Card>
@@ -98,9 +98,8 @@ const Contact = () => {
             </CardHeader>
             <CardContent>
               <address className="not-italic">
-                TaskTracker HQ<br />
-                123 Productivity Street<br />
-                San Francisco, CA 94105
+                59, Subramaniya Udaiyar st,t<br />
+                Telungupalyam,Coimbatore-39
               </address>
             </CardContent>
           </Card>
